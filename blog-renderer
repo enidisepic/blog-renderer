@@ -1,0 +1,439 @@
+#!/usr/bin/env bash
+#
+# Author: Enid Brown
+# Date: August 02 2025
+# License: MIT
+# Description: Backend logic for the blog-renderer GitHub Action.
+
+shopt -s nullglob extglob
+
+get-arguments() {
+    # Get arguments
+    local OPTIND OPTARG opt
+    while getopts "b:p:o:i:h:t:s:u:r:c:n:" opt; do
+        case "${opt}" in
+            b) base_directory="${OPTARG}" ;;
+            p) posts_directory="${OPTARG}" ;;
+            o) output_directory="${OPTARG}" ;;
+            i) intro_path="${OPTARG}" ;;
+            h) nav_path="${OPTARG}" ;;
+            t) latest_post_threshold="${OPTARG}" ;;
+            s) stylesheet_path="${OPTARG}" ;;
+            u) github_username="${OPTARG}" ;;
+            r) repository_threshold="${OPTARG}" ;;
+            c) theme_color="${OPTARG}" ;;
+            n) title="${OPTARG}" ;;
+            *) echo "${opt} is not a valid option." >&2 ;;
+        esac
+    done
+}
+
+set-defaults() {
+    [[ -z "${base_directory}" ]] && base_directory="pages"
+    [[ -z "${posts_directory}" ]] && posts_directory="${base_directory}/posts"
+    [[ -z "${output_directory}" ]] && output_directory="rendered"
+    output_directory="$(pwd)/${output_directory}"
+    [[ "${intro_path}" == "NULL" ]] && intro_path=
+    [[ "${nav_path}" == "NULL" ]] && nav_path=
+    [[ -z "${latest_post_threshold}" ]] && latest_post_threshold=5
+    [[ "${stylesheet_path}" == "NULL" ]] && stylesheet_path=
+    [[ -z "${repository_threshold}" ]] && repository_threshold=5
+    [[ "${theme_color}" == "NULL" ]] && theme_color=
+    [[ -z "${title}" ]] && title="My Blog"
+
+    local posts_subdirectory_temp
+    IFS="/" read -ra posts_subdirectory_temp <<< "${posts_directory}"
+    posts_subdirectory="${posts_subdirectory_temp[-1]}"
+
+    temp_directory="$(mktemp -d)"
+    echo "Created temp directory at ${temp_directory}"
+}
+
+print-configuration() {
+    echo "base_directory        --> ${base_directory}"
+    echo "posts_directory       --> ${posts_directory}"
+    echo "output_directory      --> ${output_directory}"
+    echo "intro_path            --> ${intro_path}"
+    echo "nav_path              --> ${nav_path}"
+    echo "latest_post_threshold --> ${latest_post_threshold}"
+    echo "stylesheet_path       --> ${stylesheet_path}"
+    echo "posts_subdirectory    --> ${posts_subdirectory}"
+    echo "theme_color           --> ${theme_color}"
+    echo "title                 --> ${title}"
+    echo "temp_directory        --> ${temp_directory}"
+}
+
+get-path() {
+    local path=$1
+
+    case "${path}" in
+        "http://*"|"https://"*) curl -s "${path}" ;;
+        *) cat "${path}" ;;
+    esac
+}
+
+remove-posts-directory() {
+    local input=$1
+    local category=$2
+
+    [[ -n "${category}" ]] && echo "${input//${posts_directory}\/${category}\//}"
+    [[ -z "${category}" ]] && echo "${input//${posts_directory}\//}"
+}
+
+get-posts-in-directory() {
+    local category=$1
+
+    all_posts=()
+
+    echo "Getting posts in ${category}"
+
+    local posts
+    posts="$(find "${category}" \
+                -maxdepth 1 \
+                -name "*.adoc" \
+                | sort -r)"
+    [[ -z "${posts}" ]] && echo "No posts in ${category}" && return
+    readarray -t all_posts <<< "${posts}"
+}
+
+get-all-posts() {
+    local category=$1
+
+    get-posts-in-directory "${posts_directory}/${category}"
+
+    get_posts=()
+
+    local i
+    for i in "${!all_posts[@]}"; do
+        local post_file_name
+
+        post_file_name="$(remove-posts-directory "${all_posts["${i}"]}" "${category}")"
+        get_posts+=("${post_file_name//.adoc/}")
+    done
+
+    echo "Got ${#get_posts[@]} posts"
+}
+
+
+get-latest-posts() {
+    local category=$1
+
+    echo "Getting up to ${latest_post_threshold} latest posts"
+
+    get-posts-in-directory "${posts_directory}/${category}"
+
+    get_posts=()
+
+    local i
+    for i in "${!all_posts[@]}"; do
+        [[ "${i}" == "${latest_post_threshold}" ]] && break
+
+        local post_file_name
+        post_file_name="$(remove-posts-directory "${all_posts["${i}"]}" "${category}")"
+        get_posts+=("${post_file_name//.adoc/}")
+    done
+
+    echo "Got ${#get_posts[@]} posts"
+}
+
+create-header() {
+    local generated_header_path="${base_directory}/header.adoc"
+
+    echo "= ${title}" >> "${generated_header_path}"
+    echo "" >> "${generated_header_path}"
+
+    if [[ -n "${nav_path}" ]]; then
+        header_content="$(get-path "${base_directory}/${nav_path}")"
+        echo "${header_content}" >> "${generated_header_path}"        
+    else
+        echo "link:all_posts.html[all pages]" >> "${generated_header_path}"
+    fi
+    echo "" >> "${generated_header_path}"
+}
+
+add-header() {
+    local path=$1
+    
+    echo "include::header.adoc[]" >> "${path}"
+    echo "" >> "${path}"
+}
+
+get-post-title() {
+    local post_path=$1
+
+    local post_title_split post_title_final
+    IFS="-" read -ra post_title_split <<< "${post_path}"
+    IFS="_" read -ra post_title_final <<< "${post_title_split[1]}"
+
+    echo "${post_title_final[@]//.html/}"
+}
+
+substitute-meta() {
+    local post_title=$1
+    local post_path=$2
+
+    echo "Substituting {meta} for ${post_path}"
+
+    local meta
+    meta=":docinfo: private-head\n:toc:\n:source-highlighter: highlight.js\n:title: ${title} - ${post_title}\n\ninclude::header.adoc[]"
+
+    sed -i "s/{meta}/${meta}/g" "${post_path}"
+}
+
+generate-posts-page() {
+    local page_path=$1
+    local get_function=$2
+    local title=$3
+    local include_title=$4
+
+    echo "Generating ${page_path}"
+
+    rm "${page_path}" 2> /dev/null
+
+    echo ":docinfo: shared" >> "${page_path}"
+    echo "" >> "${page_path}"
+    
+    [[ -n "${include_title}" ]] && add-header "${page_path}"
+
+    echo "== ${title}" >> "${page_path}"
+    echo "" >> "${page_path}"
+
+    
+    if [[ "${root_posts_count}" -gt 0 ]]; then
+        local posts=()
+        $get_function
+        posts=("${get_posts[@]}")
+        all_posts=()
+
+        echo "== Uncategorized" >> "${page_path}"
+        echo "" >> "${page_path}"
+
+        for post in "${posts[@]}"; do
+            local post_title full_post_path
+            post_title="$(get-post-title "${post}")"
+            full_post_path="${posts_directory}/${post}.adoc"
+
+            substitute-meta "${post_title}" "${full_post_path}"
+            echo "* link:${posts_subdirectory}/${post}.html[${post_title}]" >> "${page_path}"
+            echo "" >> "${page_path}"
+        done
+    fi
+
+    local category_subdir category_path
+    for category_path in "${posts_directory}"/*/; do
+        local category_subdir_parts
+        IFS="/" read -ra category_subdir_parts <<< "${category_path}"
+        category_subdir="${category_subdir_parts[-1]}"
+        full_category_path="${posts_directory}/${category_subdir}"
+
+        local posts=()
+        $get_function "${category_subdir}"
+        posts=("${get_posts[@]}")
+        all_posts=()
+
+        echo "=== ${category_subdir}" >> "${page_path}"
+        echo "" >> "${page_path}"
+
+        for post in "${posts[@]}"; do
+            local post_title full_post_path
+            post_title="$(get-post-title "${post}")"
+            full_post_path="${full_category_path}/${post}.adoc"
+
+            substitute-meta "${post_title}" "${full_post_path}"
+            echo "* link:${posts_subdirectory}/${category_subdir}/${post}.html[${post_title}]" >> "${page_path}"
+            echo "" >> "${page_path}"
+        done
+    done
+
+    echo "Done generating ${page_path}"
+}
+
+create-all-posts-page() {
+    generate-posts-page "${base_directory}/all_posts.adoc" "get-all-posts" "All Posts" "true"
+}
+
+
+create-latest-posts-page() {
+    generate-posts-page "${base_directory}/latest_posts.adoc" "get-latest-posts" "Latest Posts" "true"
+    generate-posts-page "${base_directory}/latest_posts_include.adoc" "get-latest-posts" "Latest Posts"
+}
+
+render-repositories() {
+    echo "Getting repositores"
+
+    local repository_response repository_information
+    repository_response="$(curl -s https://api.github.com/users/${github_username}/repos)"
+    repository_information="$(echo "${repository_response}" \
+        | jq -r "sort_by(.updated_at) | reverse | .[:${repository_threshold}] | .[] | [.full_name, .description] \
+        | join(\"|\")")"
+
+    repositories=()
+    readarray -t repositories <<< "${repository_information}"
+
+    local repos_file_path="${base_directory}/repos.adoc"
+
+    echo ":docinfo: shared" >> "${repos_file_path}"
+    echo "" >> "${repos_file_path}"
+
+    echo "== Last Active Repositories" >> "${repos_file_path}"
+    echo "" >> "${repos_file_path}"
+
+    local repository single_repo_information
+    for repository in "${repositories[@]}"; do
+        IFS="|" read -ra single_repo_information <<< "${repository}"
+        local short_name
+        short_name="$(echo "${single_repo_information[0]}" | sed "s/${github_username}\///g")"
+        echo "* link:https://github.com/${single_repo_information[0]}[${short_name}: \
+            ${single_repo_information[1]},window=_blank]" \
+            >> "${repos_file_path}"
+    done
+}
+
+render-index() {
+    local index_file="${base_directory}/index.adoc"
+
+    echo "Generating ${index_file}"
+
+    rm "${index_file}" 2> /dev/null
+
+    echo ":docinfo: shared" >> "${index_file}"
+    echo "" >> "${index_file}"
+
+    add-header "${index_file}"
+
+    if [[ -n "${intro_path}" ]]; then
+        get-path "${intro_path}" > "${base_directory}/intro.adoc"
+        echo "include::intro.adoc[]" >> "${index_file}"
+        echo "" >> "${index_file}"
+    fi
+
+    if [[ -n "${github_username}" ]]; then
+        render-repositories
+        echo "include::repos.adoc[]" >> "${index_file}"
+        echo "" >> "${index_file}"
+    fi
+    
+    create-latest-posts-page
+    echo "include::latest_posts_include.adoc[]" >> "${index_file}"
+    echo "" >> "${index_file}"
+
+    echo "Done generating ${index_file}"
+}
+
+echo-command() {
+    echo "Running ${*}"
+    "$@"
+}
+
+get-docinfo-file-name() {
+    local input=$1
+
+    echo "${input//.html/}-docinfo.html"
+}
+
+get-description-path() {
+    local input=$1
+
+    echo "${input//.html/})-description.txt"
+}
+
+generate-docinfo() {
+    echo "Generating docinfo files"
+
+    local post
+    for post in "${all_posts[@]}"; do
+        local docinfo_path
+        docinfo_path="${base_directory}/$(get-docinfo-file-name "${post}")"
+
+        local description_path post_title
+        description_path="${posts_directory}/$(get-description-path "${post}")"
+        post_title="$(get-post-title "${post}")"
+
+        if [[ -f "${description_path}" ]]; then
+            echo "<meta property=\"og:title\" content=\"${post_title}\">" >> "${docinfo_path}"
+            echo "<meta property=\"og:description\" content=\"$(cat "${description_path}")\">" >> "${docinfo_path}"
+
+            [[ -n "${github_username}" ]] && \
+                echo "<meta property=\"og:image\" content=\"https://github.com/${github_username}.png\">" \
+                    >> "${docinfo_path}"
+            [[ -n "${theme_color}" ]] && \
+                echo "<meta name=\"theme-color\" content=\"${theme_color}\">" >> "${docinfo_path}"
+        fi
+    done
+
+    local description_path docinfo_path
+    description_path="${base_directory}/description.txt"
+    docinfo_path="${base_directory}/docinfo.html"
+    if [[ -f "${description_path}" ]]; then
+        echo "<meta property=\"og:title\" content=\"${title}\">" >> "${docinfo_path}"
+        echo "<meta property=\"og:description\" content=\"$(cat "${description_path}")\">" >> "${docinfo_path}"
+
+        [[ -n "${github_username}" ]] && \
+            echo "<meta property=\"og:image\" content=\"https://github.com/${github_username}.png\">" \
+                >> "${docinfo_path}"
+        [[ -n "${theme_color}" ]] && \
+            echo "<meta name=\"theme-color\" content=\"${theme_color}\">" >> "${docinfo_path}"
+    fi
+
+    echo "Done generating docinfo files"
+}
+
+main() {
+    get-arguments "$@"
+    set-defaults
+    print-configuration
+
+    mkdir "${base_directory}" 2> /dev/null
+    mkdir "${posts_directory}" 2> /dev/null
+    mkdir "${output_directory}" 2> /dev/null
+    mkdir "${temp_directory}" 2> /dev/null
+
+    cp -r "${base_directory}" "${temp_directory}"
+    cp "${stylesheet_path}" "${temp_directory}"
+    base_directory="${temp_directory}/${base_directory}"
+    posts_directory="${temp_directory}/${posts_directory}"
+
+    root_posts_count="$(find "${posts_directory}" -maxdepth 1 -name "*.adoc" | wc -l)"
+
+    create-header
+
+    create-all-posts-page
+
+    generate-docinfo
+
+    render-index
+    
+    [[ -n "${stylesheet_path}" ]] && stylesheet_path="../${stylesheet_path}"
+
+    echo-command asciidoctor \
+        -b html5 \
+        -B "${base_directory}" \
+        -D "${output_directory}" \
+        -a "stylesheet=${stylesheet_path}" \
+        "${base_directory}/*.adoc"
+
+    if [[ "${root_posts_count}" -gt 0 ]]; then
+        echo-command asciidoctor \
+            -b html5 \
+            -B "${base_directory}" \
+            -D "${output_directory}/${posts_subdirectory}" \
+            -a "stylesheet=${stylesheet_path}" \
+            "${posts_directory}/*.adoc"
+    fi
+
+    local category_subdir category_path
+    for category_path in "${posts_directory}"/*/; do
+        local category_subdir_parts
+        IFS="/" read -ra category_subdir_parts <<< "${category_path}"
+        category_subdir="${category_subdir_parts[-1]}"
+
+        echo-command asciidoctor \
+            -b html5 \
+            -B "${base_directory}" \
+            -D "${output_directory}/${posts_subdirectory}/${category_subdir}" \
+            -a "stylesheet=${stylesheet_path}" \
+            "${posts_directory}/${category_subdir}/*.adoc"
+    done
+}
+
+main "$@"

@@ -1,0 +1,66 @@
+name: Render Blog
+description: Render AsciiDoc files in a repository laid out in the format of enidisepic/blog
+
+inputs:
+  base_directory:
+    description: The directory the .adoc-files are stored in (defaults to "pages")
+    default: pages
+    required: false
+  posts_directory:
+    description: The directory containing all posts (defaults to "pages/posts")
+    default: pages/posts
+    required: false
+  output_directory:
+    description: The directory to put the rendered files in (defaults to "rendered")
+    default: rendered
+    required: false
+  intro_path:
+    description: URL/path to the intro in adoc format. Will not add intro if empty.
+    default: "NULL"
+    required: false
+  nav_path:
+    description: URL/path to the navigation bar in adoc format. Will not add navigation if empty.
+    default: "NULL"
+    required: false
+  latest_post_threshold:
+    description: How many of the latest posts to put into the latest posts section on the main page. Defaults to 5.
+    default: 5
+    required: false
+  stylesheet:
+    description: Path to the stylesheet .css file.
+    default: "NULL"
+    required: false
+  github_username:
+    description: GitHub username. If this is set, index will include the last <repository_threshold> repositories.
+    default: true
+    required: false
+  repository_threshold:
+    description: How many repositories (sorted by last commit) to include
+    default: 5
+    required: false
+  theme_color:
+    description: Theme color.
+    default: "NULL"
+    required: false
+  title:
+    description: Blog title. Defaults to "My Blog".
+    default: "My Blog"
+    required: false
+
+runs:
+  using: docker
+  image: Dockerfile
+  args:
+    - "/blog-renderer \
+        -b \"${{ inputs.base_directory }}\" \
+        -p \"${{ inputs.posts_directory }}\" \
+        -o \"${{ inputs.output_directory }}\" \
+        -i \"${{ inputs.intro_path }}\" \
+        -h \"${{ inputs.nav_path  }}\" \
+        -t \"${{ inputs.latest_post_threshold }}\" \
+        -s \"${{ inputs.stylesheet }}\" \
+        -u \"${{ inputs.github_username }}\" \
+        -r \"${{ inputs.repository_threshold }}\" \
+        -c \"${{ inputs.theme_color }}\" \
+        -n \"${{ inputs.title }}\""
+  
