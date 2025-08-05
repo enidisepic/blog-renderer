@@ -165,7 +165,7 @@ get-post-title() {
     IFS="-" read -ra post_title_split <<< "${post_path}"
     IFS="_" read -ra post_title_final <<< "${post_title_split[1]}"
 
-    echo "${post_title_final[@]//.html/}"
+    echo "${post_title_final[@]}"
 }
 
 substitute-meta() {
@@ -235,7 +235,7 @@ generate-posts-page() {
         echo "" >> "${page_path}"
 
         for post in "${posts[@]}"; do
-            local post_title full_post_path
+	    local post_title full_post_path
             post_title="$(get-post-title "${post}")"
             full_post_path="${full_category_path}/${post}.adoc"
 
@@ -328,26 +328,33 @@ echo-command() {
 get-docinfo-file-name() {
     local input=$1
 
-    echo "${input//.html/}-docinfo.html"
+    echo "${input//.adoc/}-docinfo.html"
 }
 
 get-description-path() {
     local input=$1
 
-    echo "${input//.html/})-description.txt"
+    echo "${input//.adoc/}-description.txt"
 }
 
 generate-docinfo() {
     echo "Generating docinfo files"
 
+    local find_posts
+    find_posts="$(find "${posts_directory}" -name "*.adoc" -type f)"
+    readarray -t all_posts <<< "${find_posts}"
+
     local post
     for post in "${all_posts[@]}"; do
         local docinfo_path
-        docinfo_path="${base_directory}/$(get-docinfo-file-name "${post}")"
+	docinfo_path="$(get-docinfo-file-name "${post}")"
+
+        echo "Generating ${docinfo_path}"
 
         local description_path post_title
-        description_path="${posts_directory}/$(get-description-path "${post}")"
+	description_path="$(get-description-path "${post}")"
         post_title="$(get-post-title "${post}")"
+	post_title="${post_title//.adoc/}"
 
         if [[ -f "${description_path}" ]]; then
             echo "<meta property=\"og:title\" content=\"${post_title}\">" >> "${docinfo_path}"
@@ -364,6 +371,7 @@ generate-docinfo() {
     local description_path docinfo_path
     description_path="${base_directory}/description.txt"
     docinfo_path="${base_directory}/docinfo.html"
+    echo "Generating ${docinfo_path}"
     if [[ -f "${description_path}" ]]; then
         echo "<meta property=\"og:title\" content=\"${title}\">" >> "${docinfo_path}"
         echo "<meta property=\"og:description\" content=\"$(cat "${description_path}")\">" >> "${docinfo_path}"
@@ -374,6 +382,8 @@ generate-docinfo() {
         [[ -n "${theme_color}" ]] && \
             echo "<meta name=\"theme-color\" content=\"${theme_color}\">" >> "${docinfo_path}"
     fi
+
+    all_posts=()
 
     echo "Done generating docinfo files"
 }
@@ -388,8 +398,8 @@ main() {
     mkdir "${output_directory}" 2> /dev/null
     mkdir "${temp_directory}" 2> /dev/null
 
-    cp -r "${base_directory}" "${temp_directory}"
-    cp "${stylesheet_path}" "${temp_directory}"
+    cp -r "${base_directory}" "${temp_directory}" || (echo "Couldn't copy ${base_directory} into ${temp_directory}" && exit 1)
+    cp "${stylesheet_path}" "${temp_directory}" 2> /dev/null
     base_directory="${temp_directory}/${base_directory}"
     posts_directory="${temp_directory}/${posts_directory}"
 
@@ -399,11 +409,11 @@ main() {
 
     create-all-posts-page
 
-    generate-docinfo
-
     render-index
     
     [[ -n "${stylesheet_path}" ]] && stylesheet_path="../${stylesheet_path}"
+
+    generate-docinfo
 
     echo-command asciidoctor \
         -b html5 \
