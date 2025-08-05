@@ -183,7 +183,7 @@ substitute-meta() {
 generate-posts-page() {
     local page_path=$1
     local get_function=$2
-    local title=$3
+    local page_title=$3
     local include_title=$4
 
     echo "Generating ${page_path}"
@@ -195,7 +195,7 @@ generate-posts-page() {
     
     [[ -n "${include_title}" ]] && add-header "${page_path}"
 
-    echo "== ${title}" >> "${page_path}"
+    echo "== ${page_title}" >> "${page_path}"
     echo "" >> "${page_path}"
 
     
