@@ -175,7 +175,7 @@ substitute-meta() {
     echo "Substituting {meta} for ${post_path}"
 
     local meta
-    meta=":docinfo: private-head\n:toc:\n:source-highlighter: highlight.js\n:title: ${title} - ${post_title}\n\ninclude::header.adoc[]"
+    meta=":docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:title: ${title} - ${post_title}\n\ninclude::header.adoc[]"
 
     sed -i "s/{meta}/${meta}/g" "${post_path}"
 }
