@@ -49,7 +49,7 @@ inputs:
 
 runs:
   using: docker
-  image: Dockerfile
+  image: docker://ghcr.io/enidisepic/blog-renderer:latest
   args:
     - "/blog-renderer \
         -b \"${{ inputs.base_directory }}\" \
