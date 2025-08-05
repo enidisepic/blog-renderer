@@ -146,7 +146,7 @@ create-header() {
         header_content="$(get-path "${base_directory}/${nav_path}")"
         echo "${header_content}" >> "${generated_header_path}"        
     else
-        echo "link:all_posts.html[all pages]" >> "${generated_header_path}"
+        echo "link:all_posts[all pages]" >> "${generated_header_path}"
     fi
     echo "" >> "${generated_header_path}"
 }
@@ -214,7 +214,7 @@ generate-posts-page() {
             full_post_path="${posts_directory}/${post}.adoc"
 
             substitute-meta "${post_title}" "${full_post_path}"
-            echo "* link:${posts_subdirectory}/${post}.html[${post_title}]" >> "${page_path}"
+            echo "* link:${posts_subdirectory}/${post}[${post_title}]" >> "${page_path}"
             echo "" >> "${page_path}"
         done
     fi
@@ -240,7 +240,7 @@ generate-posts-page() {
             full_post_path="${full_category_path}/${post}.adoc"
 
             substitute-meta "${post_title}" "${full_post_path}"
-            echo "* link:${posts_subdirectory}/${category_subdir}/${post}.html[${post_title}]" >> "${page_path}"
+            echo "* link:${posts_subdirectory}/${category_subdir}/${post}[${post_title}]" >> "${page_path}"
             echo "" >> "${page_path}"
         done
     done
@@ -254,8 +254,7 @@ create-all-posts-page() {
 
 
 create-latest-posts-page() {
-    generate-posts-page "${base_directory}/latest_posts.adoc" "get-latest-posts" "Latest Posts" "true"
-    generate-posts-page "${base_directory}/latest_posts_include.adoc" "get-latest-posts" "Latest Posts"
+    generate-posts-page "${base_directory}/latest_posts.adoc" "get-latest-posts" "Latest Posts"
 }
 
 render-repositories() {
@@ -314,7 +313,7 @@ render-index() {
     fi
     
     create-latest-posts-page
-    echo "include::latest_posts_include.adoc[]" >> "${index_file}"
+    echo "include::latest_posts.adoc[]" >> "${index_file}"
     echo "" >> "${index_file}"
 
     echo "Done generating ${index_file}"
