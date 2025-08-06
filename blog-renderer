@@ -22,7 +22,7 @@ get-arguments() {
             u) github_username="${OPTARG}" ;;
             r) repository_threshold="${OPTARG}" ;;
             c) theme_color="${OPTARG}" ;;
-            n) title="${OPTARG}" ;;
+            n) blog_title="${OPTARG}" ;;
             *) echo "${opt} is not a valid option." >&2 ;;
         esac
     done
@@ -39,7 +39,7 @@ set-defaults() {
     [[ "${stylesheet_path}" == "NULL" ]] && stylesheet_path=
     [[ -z "${repository_threshold}" ]] && repository_threshold=5
     [[ "${theme_color}" == "NULL" ]] && theme_color=
-    [[ -z "${title}" ]] && title="My Blog"
+    [[ -z "${blog_title}" ]] && blog_title="My Blog"
 
     local posts_subdirectory_temp
     IFS="/" read -ra posts_subdirectory_temp <<< "${posts_directory}"
@@ -59,7 +59,7 @@ print-configuration() {
     echo "stylesheet_path       --> ${stylesheet_path}"
     echo "posts_subdirectory    --> ${posts_subdirectory}"
     echo "theme_color           --> ${theme_color}"
-    echo "title                 --> ${title}"
+    echo "title                 --> ${blog_title}"
     echo "temp_directory        --> ${temp_directory}"
 }
 
@@ -136,26 +136,34 @@ get-latest-posts() {
     echo "Got ${#get_posts[@]} posts"
 }
 
+get-nav() {
+    if [[ -n "${nav_path}" ]]; then
+        nav_content="$(get-path "${base_directory}/${nav_path}")"
+        echo "${nav_content}"     
+    else
+        echo "link:all_posts[all pages]"
+    fi
+}
+
 create-header() {
     local generated_header_path="${base_directory}/header.adoc"
 
-    echo "= ${title}" >> "${generated_header_path}"
-    echo "" >> "${generated_header_path}"
+    cat << EOF >> "${generated_header_path}"
+= ${blog_title}
+:docinfo: shared
 
-    if [[ -n "${nav_path}" ]]; then
-        header_content="$(get-path "${base_directory}/${nav_path}")"
-        echo "${header_content}" >> "${generated_header_path}"        
-    else
-        echo "link:all_posts[all pages]" >> "${generated_header_path}"
-    fi
-    echo "" >> "${generated_header_path}"
+$(get-nav)
+
+EOF
 }
 
 add-header() {
     local path=$1
     
-    echo "include::header.adoc[]" >> "${path}"
-    echo "" >> "${path}"
+    cat << EOF >> "${path}"
+include::header.adoc[]
+
+EOF
 }
 
 get-post-title() {
@@ -174,8 +182,8 @@ substitute-meta() {
 
     echo "Substituting {meta} for ${post_path}"
 
-    local meta
-    meta=":docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:title: ${title} - ${post_title}\n\ninclude::header.adoc[]"
+    local meta="= ${post_title}\n:docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:title: ${blog_title} - ${post_title}"
+
 
     sed -i "s/{meta}/${meta}/g" "${post_path}"
 }
@@ -190,14 +198,12 @@ generate-posts-page() {
 
     rm "${page_path}" 2> /dev/null
 
-    echo ":docinfo: shared" >> "${page_path}"
-    echo "" >> "${page_path}"
-    
     [[ -n "${include_title}" ]] && add-header "${page_path}"
 
-    echo "== ${page_title}" >> "${page_path}"
-    echo "" >> "${page_path}"
+cat << EOF >> "${page_path}"
+== ${page_title}
 
+EOF
     
     if [[ "${root_posts_count}" -gt 0 ]]; then
         local posts=()
@@ -271,11 +277,10 @@ render-repositories() {
 
     local repos_file_path="${base_directory}/repos.adoc"
 
-    echo ":docinfo: shared" >> "${repos_file_path}"
-    echo "" >> "${repos_file_path}"
+cat << EOF >> "${repos_file_path}"
+== Last Active Repositories
 
-    echo "== Last Active Repositories" >> "${repos_file_path}"
-    echo "" >> "${repos_file_path}"
+EOF
 
     local repository single_repo_information
     for repository in "${repositories[@]}"; do
@@ -295,9 +300,6 @@ render-index() {
 
     rm "${index_file}" 2> /dev/null
 
-    echo ":docinfo: shared" >> "${index_file}"
-    echo "" >> "${index_file}"
-
     add-header "${index_file}"
 
     if [[ -n "${intro_path}" ]]; then
@@ -313,8 +315,10 @@ render-index() {
     fi
     
     create-latest-posts-page
-    echo "include::latest_posts.adoc[]" >> "${index_file}"
-    echo "" >> "${index_file}"
+    cat << EOF >> "${index_file}"
+include::latest_posts.adoc[]
+
+EOF
 
     echo "Done generating ${index_file}"
 }
@@ -372,7 +376,7 @@ generate-docinfo() {
     docinfo_path="${base_directory}/docinfo.html"
     echo "Generating ${docinfo_path}"
     if [[ -f "${description_path}" ]]; then
-        echo "<meta property=\"og:title\" content=\"${title}\">" >> "${docinfo_path}"
+        echo "<meta property=\"og:title\" content=\"${blog_title}\">" >> "${docinfo_path}"
         echo "<meta property=\"og:description\" content=\"$(cat "${description_path}")\">" >> "${docinfo_path}"
 
         [[ -n "${github_username}" ]] && \
@@ -427,6 +431,7 @@ main() {
             -B "${base_directory}" \
             -D "${output_directory}/${posts_subdirectory}" \
             -a "stylesheet=${stylesheet_path}" \
+            -a "docinfodir=${posts_subdirectory}" \
             "${posts_directory}/*.adoc"
     fi
 
@@ -441,6 +446,7 @@ main() {
             -B "${base_directory}" \
             -D "${output_directory}/${posts_subdirectory}/${category_subdir}" \
             -a "stylesheet=${stylesheet_path}" \
+            -a "docinfodir=${posts_subdirectory}/${category_subdir}" \
             "${posts_directory}/${category_subdir}/*.adoc"
     done
 }
