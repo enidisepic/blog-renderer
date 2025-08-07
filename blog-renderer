@@ -10,10 +10,9 @@ shopt -s nullglob extglob
 get-arguments() {
     # Get arguments
     local OPTIND OPTARG opt
-    while getopts "b:p:o:i:h:t:s:u:r:c:n:" opt; do
+    while getopts "b:o:i:h:t:s:u:r:c:n:" opt; do
         case "${opt}" in
             b) base_directory="${OPTARG}" ;;
-            p) posts_directory="${OPTARG}" ;;
             o) output_directory="${OPTARG}" ;;
             i) intro_path="${OPTARG}" ;;
             h) nav_path="${OPTARG}" ;;
@@ -30,7 +29,7 @@ get-arguments() {
 
 set-defaults() {
     [[ -z "${base_directory}" ]] && base_directory="pages"
-    [[ -z "${posts_directory}" ]] && posts_directory="${base_directory}/posts"
+    posts_directory="${base_directory}/posts"
     [[ -z "${output_directory}" ]] && output_directory="rendered"
     output_directory="$(pwd)/${output_directory}"
     [[ "${intro_path}" == "NULL" ]] && intro_path=
@@ -59,7 +58,7 @@ print-configuration() {
     echo "stylesheet_path       --> ${stylesheet_path}"
     echo "posts_subdirectory    --> ${posts_subdirectory}"
     echo "theme_color           --> ${theme_color}"
-    echo "title                 --> ${blog_title}"
+    echo "blog_title            --> ${blog_title}"
     echo "temp_directory        --> ${temp_directory}"
 }
 
@@ -81,18 +80,18 @@ remove-posts-directory() {
 }
 
 get-posts-in-directory() {
-    local category=$1
+    local directory=$1
 
     all_posts=()
 
-    echo "Getting posts in ${category}"
+    echo "Getting posts in ${directory}"
 
     local posts
-    posts="$(find "${category}" \
+    posts="$(find "${directory}" \
                 -maxdepth 1 \
                 -name "*.adoc" \
                 | sort -r)"
-    [[ -z "${posts}" ]] && echo "No posts in ${category}" && return
+    [[ -z "${posts}" ]] && echo "No posts in ${directory}" && return
     readarray -t all_posts <<< "${posts}"
 }
 
@@ -105,10 +104,21 @@ get-all-posts() {
 
     local i
     for i in "${!all_posts[@]}"; do
-        local post_file_name
+        local post_file_name post_raw_name
 
         post_file_name="$(remove-posts-directory "${all_posts["${i}"]}" "${category}")"
-        get_posts+=("${post_file_name//.adoc/}")
+        post_raw_name="${post_file_name//.adoc/}"
+
+        category="${category//\//}"
+
+        local post_asset_dir="${posts_directory}/${category}/${post_raw_name}"
+        local output_asset_dir="${output_directory}/posts/${category}/${post_raw_name}"
+        if [[ -d "${post_asset_dir}" ]]; then
+            mkdir -p "${output_asset_dir}" 2> /dev/null
+            cp -r "${post_asset_dir}"/* "${output_asset_dir}"
+        fi
+
+        get_posts+=("${post_raw_name}")
     done
 
     echo "Got ${#get_posts[@]} posts"
@@ -182,7 +192,7 @@ substitute-meta() {
 
     echo "Substituting {meta} for ${post_path}"
 
-    local meta="= ${post_title}\n:docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:title: ${blog_title} - ${post_title}"
+    local meta="= ${post_title}\n:docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:imagesdir: {docname}\n:title: ${blog_title} - ${post_title}"
 
 
     sed -i "s/{meta}/${meta}/g" "${post_path}"
