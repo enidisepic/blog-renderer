@@ -151,29 +151,8 @@ get-nav() {
         nav_content="$(get-path "${base_directory}/${nav_path}")"
         echo "${nav_content}"     
     else
-        echo "link:all_posts[all pages]"
+        echo "link:/all_posts[all posts]"
     fi
-}
-
-create-header() {
-    local generated_header_path="${base_directory}/header.adoc"
-
-    cat << EOF >> "${generated_header_path}"
-= ${blog_title}
-:docinfo: shared
-
-$(get-nav)
-
-EOF
-}
-
-add-header() {
-    local path=$1
-    
-    cat << EOF >> "${path}"
-include::header.adoc[]
-
-EOF
 }
 
 get-post-title() {
@@ -192,10 +171,20 @@ substitute-meta() {
 
     echo "Substituting {meta} for ${post_path}"
 
-    local meta="= ${post_title}\n:docinfo: private-head\n:toc: left\n:source-highlighter: highlight.js\n:imagesdir: {docname}\n:title: ${blog_title} - ${post_title}"
+    cat << EOF >> "${base_directory}/meta"
+= ${blog_title}
+:docinfo: private
+:toc: left
+:source-highlighter: highlight.js
+:imagesdir: {docname}
+:title: ${blog_title} - ${post_title}
 
+${nav}
 
-    sed -i "s/{meta}/${meta}/g" "${post_path}"
+== ${post_title}
+EOF
+
+    sed -i -e '/{meta}/{' -e "r ${base_directory}/meta" -e 'd' -e'}' "${post_path}"
 }
 
 generate-posts-page() {
@@ -208,9 +197,12 @@ generate-posts-page() {
 
     rm "${page_path}" 2> /dev/null
 
-    [[ -n "${include_title}" ]] && add-header "${page_path}"
+    [[ -n "${include_title}" ]] && cat << EOF >> "${page_path}"
+include::header.adoc[]
 
-cat << EOF >> "${page_path}"
+EOF
+
+    cat << EOF >> "${page_path}"
 == ${page_title}
 
 EOF
@@ -287,7 +279,7 @@ render-repositories() {
 
     local repos_file_path="${base_directory}/repos.adoc"
 
-cat << EOF >> "${repos_file_path}"
+    cat << EOF >> "${repos_file_path}"
 == Last Active Repositories
 
 EOF
@@ -310,7 +302,10 @@ render-index() {
 
     rm "${index_file}" 2> /dev/null
 
-    add-header "${index_file}"
+    cat << EOF >> "${index_file}"
+include::header.adoc[]
+
+EOF
 
     if [[ -n "${intro_path}" ]]; then
         get-path "${intro_path}" > "${base_directory}/intro.adoc"
@@ -365,9 +360,9 @@ generate-docinfo() {
         echo "Generating ${docinfo_path}"
 
         local description_path post_title
-	description_path="$(get-description-path "${post}")"
+	    description_path="$(get-description-path "${post}")"
         post_title="$(get-post-title "${post}")"
-	post_title="${post_title//.adoc/}"
+	    post_title="${post_title//.adoc/}"
 
         if [[ -f "${description_path}" ]]; then
             echo "<meta property=\"og:title\" content=\"${post_title}\">" >> "${docinfo_path}"
@@ -412,26 +407,37 @@ main() {
     mkdir "${temp_directory}" 2> /dev/null
 
     cp -r "${base_directory}" "${temp_directory}" || (echo "Couldn't copy ${base_directory} into ${temp_directory}" && exit 1)
-    cp "${stylesheet_path}" "${temp_directory}" 2> /dev/null
     base_directory="${temp_directory}/${base_directory}"
     posts_directory="${temp_directory}/${posts_directory}"
 
+    if [[ -n "${stylesheet_path}" ]]; then
+        cp "${stylesheet_path}" "${base_directory}" || (echo "Couldn't copy ${stylesheet_path} into ${base_directory}" && exit 1)
+        stylesheet_path="${base_directory}/${stylesheet_path}"
+    fi
+
     root_posts_count="$(find "${posts_directory}" -maxdepth 1 -name "*.adoc" | wc -l)"
 
-    create-header
+    nav="$(get-nav)"
+
+    cat << EOF >> "${base_directory}/header.adoc"
+= ${blog_title}
+:docinfo: shared
+
+${nav}
+
+EOF
 
     create-all-posts-page
 
     render-index
     
-    [[ -n "${stylesheet_path}" ]] && stylesheet_path="../${stylesheet_path}"
-
     generate-docinfo
 
     echo-command asciidoctor \
         -b html5 \
         -B "${base_directory}" \
         -D "${output_directory}" \
+        -a "docinfodir=${base_directory}" \
         -a "stylesheet=${stylesheet_path}" \
         "${base_directory}/*.adoc"
 
@@ -445,19 +451,19 @@ main() {
             "${posts_directory}/*.adoc"
     fi
 
-    local category_subdir category_path
+    local category_subdirectory category_path
     for category_path in "${posts_directory}"/*/; do
         local category_subdir_parts
         IFS="/" read -ra category_subdir_parts <<< "${category_path}"
-        category_subdir="${category_subdir_parts[-1]}"
+        category_subdirectory="${category_subdir_parts[-1]}"
 
         echo-command asciidoctor \
             -b html5 \
             -B "${base_directory}" \
-            -D "${output_directory}/${posts_subdirectory}/${category_subdir}" \
+            -D "${output_directory}/${posts_subdirectory}/${category_subdirectory}" \
             -a "stylesheet=${stylesheet_path}" \
-            -a "docinfodir=${posts_subdirectory}/${category_subdir}" \
-            "${posts_directory}/${category_subdir}/*.adoc"
+            -a "docinfodir=${posts_subdirectory}/${category_subdirectory}" \
+            "${posts_directory}/${category_subdirectory}/*.adoc"
     done
 }
 

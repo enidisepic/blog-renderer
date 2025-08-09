@@ -6,10 +6,6 @@ inputs:
     description: The directory the .adoc-files are stored in (defaults to "pages")
     default: pages
     required: false
-  posts_directory:
-    description: The directory containing all posts (defaults to "pages/posts")
-    default: pages/posts
-    required: false
   output_directory:
     description: The directory to put the rendered files in (defaults to "rendered")
     default: rendered
@@ -53,7 +49,6 @@ runs:
   args:
     - "/blog-renderer \
         -b \"${{ inputs.base_directory }}\" \
-        -p \"${{ inputs.posts_directory }}\" \
         -o \"${{ inputs.output_directory }}\" \
         -i \"${{ inputs.intro_path }}\" \
         -h \"${{ inputs.nav_path  }}\" \
